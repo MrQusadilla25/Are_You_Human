@@ -1,0 +1,71 @@
+body {
+  background-color: #f4e7d4;
+  font-family: sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+h1 {
+  margin-bottom: 10px;
+  color: #3a2e25;
+}
+
+#gameBoard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+}
+
+.row div {
+  width: 50px;
+  height: 50px;
+  background-color: white;
+  border: 2px solid #ccc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 24px;
+  font-weight: bold;
+  transition: background-color 0.3s;
+}
+
+.green {
+  background-color: #6aaa64;
+  color: white;
+}
+
+.yellow {
+  background-color: #c9b458;
+  color: white;
+}
+
+.red {
+  background-color: #787c7e;
+  color: white;
+}
+
+#inputWord {
+  padding: 10px;
+  font-size: 18px;
+  width: 200px;
+  text-align: center;
+  margin-bottom: 10px;
+}
+
+button {
+  padding: 10px 20px;
+  font-size: 16px;
+  cursor: pointer;
+  background-color: #3a2e25;
+  color: white;
+  border: none;
+  border-radius: 4px;
+}
