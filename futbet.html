@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FutBet - Modern Firebase SDK</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 600px; margin: 2rem auto; }
+    #login, #predict { display: none; }
+    label { display: block; margin-top: 1rem; }
+    input { padding: 0.4rem; width: 100%; box-sizing: border-box; }
+    button { margin-top: 1rem; padding: 0.6rem; width: 100%; }
+    #message { color: red; margin-top: 1rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: center; }
+  </style>
+</head>
+<body>
+
+<h1>FutBet</h1>
+
+<div id="login">
+  <h2>Login / Register</h2>
+  <label>Username: <input type="text" id="username" autocomplete="off" /></label>
+  <label>Password: <input type="password" id="password" autocomplete="off" /></label>
+  <button id="btnLogin">Login</button>
+  <button id="btnRegister">Register</button>
+  <div id="message"></div>
+</div>
+
+<div id="predict">
+  <h2>Welcome, <span id="displayUser"></span>! Points: <span id="points"></span></h2>
+
+  <h3>Make Your Prediction</h3>
+  <label>Match: <b>Team A vs Team B</b></label>
+  <label>Your predicted score:</label>
+  <input type="number" id="scoreA" min="0" max="20" placeholder="Team A goals" />
+  <input type="number" id="scoreB" min="0" max="20" placeholder="Team B goals" />
+  <button id="btnPredict">Submit Prediction</button>
+
+  <h3>Leaderboard</h3>
+  <table id="leaderboard">
+    <thead><tr><th>Rank</th><th>Username</th><th>Points</th></tr></thead>
+    <tbody></tbody>
+  </table>
+
+  <button id="btnLogout">Logout</button>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
+  import { getAnalytics } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-analytics.js";
+  import {
+    getFirestore, doc, getDoc, setDoc, updateDoc, arrayUnion, query,
+    collection, orderBy, limit, getDocs
+  } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCheGm-CxUEYvf_pB0KNkAEIh_lX5zWnKc",
+    authDomain: "growlol-72754.firebaseapp.com",
+    databaseURL: "https://growlol-72754-default-rtdb.firebaseio.com",
+    projectId: "growlol-72754",
+    storageBucket: "growlol-72754.firebasestorage.app",
+    messagingSenderId: "839953238703",
+    appId: "1:839953238703:web:42c0f35100571b1b56625a",
+    measurementId: "G-YNZDXBVYZD"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const analytics = getAnalytics(app);
+  const db = getFirestore(app);
+
+  // SHA-256 hashing function, returns hex string
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  const loginDiv = document.getElementById('login');
+  const predictDiv = document.getElementById('predict');
+  const messageDiv = document.getElementById('message');
+  const usernameInput = document.getElementById('username');
+  const passwordInput = document.getElementById('password');
+  const displayUserSpan = document.getElementById('displayUser');
+  const pointsSpan = document.getElementById('points');
+  const leaderboardBody = document.querySelector('#leaderboard tbody');
+
+  let currentUser = null; // {username, points}
+
+  function showLogin() {
+    loginDiv.style.display = 'block';
+    predictDiv.style.display = 'none';
+    messageDiv.textContent = '';
+    messageDiv.style.color = 'red';
+  }
+
+  function showPredict() {
+    loginDiv.style.display = 'none';
+    predictDiv.style.display = 'block';
+    messageDiv.textContent = '';
+  }
+
+  async function register() {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    if (!username || !password) {
+      messageDiv.textContent = 'Please enter username and password.';
+      return;
+    }
+
+    // Check if username exists
+    const userDocRef = doc(db, 'users', username);
+    const userDoc = await getDoc(userDocRef);
+    if (userDoc.exists()) {
+      messageDiv.textContent = 'Username already taken.';
+      return;
+    }
+
+    const passwordHash = await sha256(password);
+    await setDoc(userDocRef, {
+      passwordHash,
+      points: 0,
+      predictions: []
+    });
+
+    messageDiv.style.color = 'green';
+    messageDiv.textContent = 'Registration successful! You can now log in.';
+  }
+
+  async function login() {
+    const username = usernameInput.value.trim();
+    const password = passwordInput.value;
+    if (!username || !password) {
+      messageDiv.textContent = 'Please enter username and password.';
+      return;
+    }
+
+    const userDocRef = doc(db, 'users', username);
+    const userDoc = await getDoc(userDocRef);
+    if (!userDoc.exists()) {
+      messageDiv.textContent = 'Username not found.';
+      return;
+    }
+
+    const userData = userDoc.data();
+    const passwordHash = await sha256(password);
+    if (passwordHash !== userData.passwordHash) {
+      messageDiv.textContent = 'Incorrect password.';
+      return;
+    }
+
+    currentUser = { username, points: userData.points };
+    localStorage.setItem('futbetUser', username);
+    showPredict();
+    loadUserData();
+    loadLeaderboard();
+  }
+
+  async function loadUserData() {
+    displayUserSpan.textContent = currentUser.username;
+    pointsSpan.textContent = currentUser.points;
+  }
+
+  async function loadLeaderboard() {
+    const q = query(collection(db, 'users'), orderBy('points', 'desc'), limit(10));
+    const querySnapshot = await getDocs(q);
+    leaderboardBody.innerHTML = '';
+    let rank = 1;
+    querySnapshot.forEach(docSnap => {
+      const data = docSnap.data();
+      const row = document.createElement('tr');
+      row.innerHTML = `<td>${rank++}</td><td>${docSnap.id}</td><td>${data.points}</td>`;
+      leaderboardBody.appendChild(row);
+    });
+  }
+
+  async function submitPrediction() {
+    const scoreA = parseInt(document.getElementById('scoreA').value);
+    const scoreB = parseInt(document.getElementById('scoreB').value);
+    if (isNaN(scoreA) || isNaN(scoreB)) {
+      alert('Please enter valid scores for both teams.');
+      return;
+    }
+
+    // For demo: fixed actual result
+    const actualA = 2, actualB = 1;
+    let earned = 0;
+
+    if (scoreA === actualA && scoreB === actualB) earned = 5;
+    else {
+      const predictedOutcome = scoreA === scoreB ? 'draw' : (scoreA > scoreB ? 'win' : 'loss');
+      const actualOutcome = actualA === actualB ? 'draw' : (actualA > actualB ? 'win' : 'loss');
+      if (predictedOutcome === actualOutcome) earned = 2;
+    }
+
+    if (earned === 0) alert('No points earned this time. Better luck next time!');
+
+    currentUser.points += earned;
+    pointsSpan.textContent = currentUser.points;
+
+    const userDocRef = doc(db, 'users', currentUser.username);
+    await updateDoc(userDocRef, {
+      points: currentUser.points,
+      predictions: arrayUnion({
+        match: 'Team A vs Team B',
+        predicted: `${scoreA}-${scoreB}`,
+        earned,
+        timestamp: Date.now()
+      })
+    });
+
+    alert(`You earned ${earned} points!`);
+    loadLeaderboard();
+  }
+
+  function logout() {
+    localStorage.removeItem('futbetUser');
+    currentUser = null;
+    showLogin();
+  }
+
+  document.getElementById('btnRegister').addEventListener('click', register);
+  document.getElementById('btnLogin').addEventListener('click', login);
+  document.getElementById('btnPredict').addEventListener('click', submitPrediction);
+  document.getElementById('btnLogout').addEventListener('click', logout);
+
+  // Auto-login if user saved in localStorage
+  window.addEventListener('load', async () => {
+    const savedUser = localStorage.getItem('futbetUser');
+    if (savedUser) {
+      const userDocRef = doc(db, 'users', savedUser);
+      const userDoc = await getDoc(userDocRef);
+      if (userDoc.exists()) {
+        currentUser = { username: savedUser, points: userDoc.data().points };
+        showPredict();
+        loadUserData();
+        loadLeaderboard();
+        return;
+      }
+    }
+    showLogin();
+  });
+</script>
+
+</body>
+</html>
